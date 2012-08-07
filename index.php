@@ -2,7 +2,7 @@
 	
 	include_once( 'config.php' );
 	
-	$bb = new BitBucket(BB_USERNAME, BB_OAUTH_KEY, BB_OAUTH_SECRET);
+	$bb = new BitBucket(BB_USERNAME, BB_PASSWORD, BB_OAUTH_KEY, BB_OAUTH_SECRET);
 	$access_token = $bb->get_token();
 	
 ?>
@@ -16,6 +16,7 @@
 		<p><a href="/bitbucket/login.php">login</a></p>
 	<?php else : ?>
 		<p><a href="/bitbucket/test-oauth.php">test oauth</a></p>
+		<p><a href="/bitbucket/logout.php">logout</a></p>
 	<?php endif; ?>
 </body>
 </html>

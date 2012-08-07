@@ -2,7 +2,7 @@
 	
 	include_once( 'config.php' );
 	
-	$bb = new BitBucket(BB_USERNAME, BB_OAUTH_KEY, BB_OAUTH_SECRET);
+	$bb = new BitBucket(BB_USERNAME, BB_PASSWORD, BB_OAUTH_KEY, BB_OAUTH_SECRET);
 	$bb->set_callback_url('http://custom.me/bitbucket/auth.php');
 	$login_url = $bb->get_bitbucket_auth_url();
 	

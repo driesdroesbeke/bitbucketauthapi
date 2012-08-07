@@ -15,6 +15,7 @@ class BitBucketAuth {
 	 *	these values are given by bitbucket
 	 */
 	protected $username;
+	protected $password;
 	protected $key;
 	protected $secret;
 	
@@ -24,7 +25,7 @@ class BitBucketAuth {
 	 *	define where we save our tokens. you can use 'file' and 'cookie'.
 	 *	you should give this folder write permissions if you want use "file"!
 	 */
-	protected $token_storage = 'cookie';
+	protected $token_storage = 'file';
 	
 	/**
 	 *	basic URLs to send requests to.
@@ -49,6 +50,8 @@ class BitBucketAuth {
 		'access_token' => '.bbaccesstoken',
 		);
 	
+	protected $request_data;
+	protected $response_data;
 	
 	/**
 	 *	class constructor
@@ -56,9 +59,10 @@ class BitBucketAuth {
 	 *	@param  string  $key      BitBucket consumer key
 	 *	@param  string  $secret   BitBucket consumer secret
 	 */
-	public function __construct( $username, $key, $secret ){
+	public function __construct( $username, $password, $key, $secret ){
 		// set main vars
 		$this->username = $username;
+		$this->password = $password;
 		$this->key = $key;
 		$this->secret = $secret;
 		
@@ -253,63 +257,102 @@ class BitBucketAuth {
 	}
 	
 	/**
-	 *	prepare url and params, send request
+	 *	prepare url and send request
 	 */
-	public function request_api($type, $uri, $params = array()){
+	public function request_api($http_method, $uri, $params = array()){
 		
 		// prepare request url
 		$request_url = $this->api_url.'/'.$uri;
+		// send request
+		return $this->_request( $http_method, $request_url, $params );
+	}
+	
+	/**
+	 *	internal request function. work with full URL set
+	 */
+	protected function _request($http_method, $request_url, $params = array()){
+		$request_url = str_replace( '{username}', $this->username, $request_url );
 
-		// prepare access token header
-		$access_token_req = OAuthRequest::from_consumer_and_token($this->consumer, $this->token, "GET", $request_url);
-		$access_token_req->sign_request($this->signature_method, $this->consumer, $this->token);
-		
-		// curl lib require header opt be set as array, so prepare it:
-		$curl_opts = array(
-			'httpheader' => array( $access_token_req->to_header() ),
-		);
-		
-		if( $type == 'GET' ){
+		// convert params as to query string
+		if( $http_method == 'GET' ){
 			if( !empty($params) ){
 				$query_string = http_build_query($params);
 				$request_url .= '?' . $query_string;
+				$params = NULL;
 			}
-			$result = $this->curl($request_url, NULL, $curl_opts);
 		}
-		else{
-			$result = $this->curl($request_url, $params, $curl_opts);
-		}
+
+		// save last request data and clean previous response data
+		$this->request_data = array(
+			'http_method' => $http_method,
+			'url' => $request_url,
+			'params' => $params,
+		);
+		$this->response_data = array();
+		
+		// prepare access token header
+		$access_token_req = OAuthRequest::from_consumer_and_token($this->consumer, $this->token, $http_method, $request_url, $params);
+		$access_token_req->sign_request($this->signature_method, $this->consumer, $this->token);
+		
+		// curl lib require header opt be set as array, so prepare it:
+		$curl_opts = array( 'httpheader' => array( $access_token_req->to_header() ) );
+		$this->request_data['header'] = $curl_opts['httpheader'];
+		
+		// send request with curl
+		$result = $this->curl($request_url, $params, $curl_opts, $http_method);
+		
+		$this->response_data = $result;
 		
 		return $result;
 	}
 	
 	/**
+	 *	return latest request data object
+	 */
+	public function get_last_request(){
+		return $this->request_data;
+	}
+	
+	/**
+	 *	return latest response data object
+	 */
+	public function get_last_response(){
+		return $this->response_data;
+	}
+	
+	/**
 	*	curl
 	*/	 	
-	protected function curl($url, $params = array(), $curl_options = array())
+	protected function curl($url, $params = array(), $curl_options = array(), $http_method = 'GET')
 	{
-		$user_agent = "Mozilla/4.0 (compatible; MSIE 5.01; Windows NT 5.0)";
-		$user_agent = $_SERVER['HTTP_USER_AGENT'];
-
 		$ch = curl_init();
 		
-		if(!empty($params))
-		{
-			curl_setopt($ch, CURLOPT_POST,1);
-			curl_setopt($ch, CURLOPT_POSTFIELDS,$params);
-		}
-		
+		// main curl opts
 		curl_setopt($ch, CURLOPT_URL, $url);
-		curl_setopt($ch, CURLOPT_SSL_VERIFYHOST,  2);
-		curl_setopt($ch, CURLOPT_USERAGENT, $user_agent);
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER,1);
+		curl_setopt($ch, CURLOPT_SSL_VERIFYHOST,  2);
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);  
 		curl_setopt($ch, CURLOPT_TIMEOUT,7);
-		curl_setopt($ch, CURLOPT_AUTOREFERER, 1); 
+		//curl_setopt($ch, CURLOPT_AUTOREFERER, 1); 
 		//curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 0);
 		
-		// this line makes it work under https
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);  
 		
+		// set post and post data if needed
+		if(!empty($params) || $http_method == 'POST')
+		{
+			curl_setopt($ch, CURLOPT_POST, 1);
+			curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
+		}
+		
+		// set custom HTTP METHOD if needed
+		if( $http_method != 'GET' && $http_method != 'POST' ){
+			curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $http_method); 
+		}
+		
+		// helper: print header send to remote server in curl_getinfo
+		curl_setopt($ch, CURLINFO_HEADER_OUT, true);
+		
+		// set all other custom headers passed with param
 		foreach($curl_options as $option => $value)
 		{
 			if(defined('CURLOPT_'.strtoupper($option)))
@@ -318,6 +361,7 @@ class BitBucketAuth {
 			}	
 		}
 	
+		// send request
 		$_result = curl_exec ($ch);
 		$_info = curl_getinfo($ch);
 		
